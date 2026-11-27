@@ -21,6 +21,15 @@ final class PlaygroundTabs: UIViewController, UITabBarDelegate {
         return item
     }()
 
+    private lazy var selectItem: UIBarButtonItem = {
+        let item = UIBarButtonItem(title: "Select", style: .plain, target: self, action: #selector(startSelection))
+        item.identifier = "library.selection"
+        return item
+    }()
+    private lazy var cancelItem = UIBarButtonItem(barButtonSystemItem: .cancel, target: self, action: #selector(cancelSelection))
+    private lazy var batchShare = UIBarButtonItem(barButtonSystemItem: .action, target: self, action: #selector(shareSelection))
+    private lazy var batchDelete = UIBarButtonItem(barButtonSystemItem: .trash, target: self, action: #selector(confirmSelectedDeletion))
+
     init(controls: FlutterViewController) {
         self.controls = controls
         bridge = FlutterMethodChannel(name: "dev.componentstudio/playground",
@@ -60,7 +69,15 @@ final class PlaygroundTabs: UIViewController, UITabBarDelegate {
         }
         pages = entries.map { $0.0 }
         tabBar.setItems(pages.map { $0.tabBarItem }, animated: false)
-        library.onChange = { [weak self] in self?.updateMenu() }
+        library.onChange = { [weak self] in
+            guard let self else { return }
+            selectItem.isEnabled = library.hasVisibleItems
+            updateMenu()
+        }
+        library.onSelectionChange = { [weak self] in self?.configureBar(animated: true) }
+        cancelItem.identifier = "context.action"
+        batchShare.identifier = "library.batchShare"
+        batchDelete.identifier = "library.batchDelete"
         library.openItem = { [weak self] id in self?.openItem(id) }
         catalog.openPage = { [weak self] demo in
             guard let self else { return }
@@ -102,6 +119,7 @@ final class PlaygroundTabs: UIViewController, UITabBarDelegate {
         guard currentPage !== next else { return }
         let previous = currentPage
         let animate = animated && !UIAccessibility.isReduceMotionEnabled
+        if previous === library, library.selecting { library.setSelecting(false) }
         previous?.willMove(toParent: nil)
         addChild(next)
         next.view.frame = content.bounds
@@ -133,7 +151,17 @@ final class PlaygroundTabs: UIViewController, UITabBarDelegate {
         let leading: [UIBarButtonItem]
         let trailing: [UIBarButtonItem]
         switch selectedIndex {
-        case 0: leading = [edit]; trailing = [moreItem]
+        case 0 where library.selecting:
+            let count = library.selectedIDs.count
+            navigationItem.title = count == 0 ? "Select Items" : "\(count) Selected"
+            batchShare.isEnabled = count > 0
+            batchDelete.isEnabled = count > 0
+            leading = [cancelItem]
+            trailing = [batchDelete, batchShare]
+        case 0:
+            selectItem.isEnabled = library.hasVisibleItems
+            leading = [edit]
+            trailing = [moreItem, selectItem]
         case 1 where groupActions: leading = []; trailing = [moreItem, shareItem]
         case 1: leading = [shareItem]; trailing = [moreItem]
         default: leading = []; trailing = [moreItem]
@@ -186,7 +214,7 @@ final class PlaygroundTabs: UIViewController, UITabBarDelegate {
             let share = action("Share List", "square.and.arrow.up") { self.presentShare(anchor: anchor) }
             let delete = UIAction(title: "Delete All Items", image: UIImage(systemName: "trash"),
                                   attributes: .destructive) { _ in self.confirmClear() }
-            if self.library.items.isEmpty { delete.attributes.insert(.disabled) }
+            if self.library.scopedItems.isEmpty { delete.attributes.insert(.disabled) }
             completion([create, sort, filter, restore, share,
                         UIMenu(title: "", options: .displayInline, children: [delete])])
         }
@@ -209,7 +237,7 @@ final class PlaygroundTabs: UIViewController, UITabBarDelegate {
     }
 
     private func confirmClear() {
-        let count = library.items.count
+        let count = library.scopedItems.count
         let alert = UIAlertController(title: "Delete all \(count) items?",
                                       message: "Restore Examples brings the sample items back.", preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
@@ -222,8 +250,25 @@ final class PlaygroundTabs: UIViewController, UITabBarDelegate {
 
     @objc private func share() { presentShare(anchor: shareItem) }
 
-    private func presentShare(anchor: UIBarButtonItem) {
-        let names = library.items.map(\.name).joined(separator: "\n")
+    @objc private func startSelection() { library.setSelecting(true) }
+    @objc private func cancelSelection() { library.setSelecting(false) }
+    @objc private func shareSelection() {
+        let entries = library.selectedItems
+        guard !entries.isEmpty else { return }
+        presentShare(anchor: batchShare, entries: entries)
+    }
+    @objc private func confirmSelectedDeletion() {
+        let count = library.selectedIDs.count
+        guard count > 0 else { return }
+        let title = count == 1 ? "Delete selected item?" : "Delete \(count) selected items?"
+        let alert = UIAlertController(title: title, message: "You can undo this in the Library.", preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Delete", style: .destructive) { [weak self] _ in self?.library.deleteSelection() })
+        presenter.present(alert, animated: true)
+    }
+
+    private func presentShare(anchor: UIBarButtonItem, entries: [Entry]? = nil) {
+        let names = (entries ?? library.scopedItems).map(\.name).joined(separator: "\n")
         let sheet = UIActivityViewController(activityItems: [names.isEmpty ? "My library is empty." : names],
                                              applicationActivities: nil)
         sheet.popoverPresentationController?.barButtonItem = anchor

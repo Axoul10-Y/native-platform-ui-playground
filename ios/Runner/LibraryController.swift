@@ -6,6 +6,8 @@ struct Entry: Codable, Equatable {
     var symbol: String
     var note: String
     var favorite = false
+    var archived: Bool? // Absent in entries saved by the first playground.
+    var isArchived: Bool { archived == true }
 
     static func examples() -> [Entry] {
         [
@@ -20,19 +22,38 @@ struct Entry: Codable, Equatable {
 
 final class LibraryController: UITableViewController {
     private let defaultsKey = "componentstudio.library.v1"
+    private let storage: UserDefaults
     private(set) var items = [Entry]()
     private(set) var favoritesOnly = false
+    private(set) var showingArchive = false
+    private(set) var selecting = false
+    private(set) var selectedIDs = Set<UUID>()
+    var scopedItems: [Entry] { items.filter { $0.isArchived == showingArchive } }
+    var hasVisibleItems: Bool { !visible.isEmpty }
+    var selectedItems: [Entry] { visible.filter { selectedIDs.contains($0.id) } }
+    private var visible: [Entry] { favoritesOnly ? scopedItems.filter(\.favorite) : scopedItems }
     var onChange: (() -> Void)?
+    var onSelectionChange: (() -> Void)?
     var openItem: ((UUID) -> Void)?
-    private var visible: [Entry] { favoritesOnly ? items.filter(\.favorite) : items }
 
-    override init(style: UITableView.Style) {
+    let history: UndoManager = {
+        let manager = UndoManager()
+        manager.groupsByEvent = false
+        manager.levelsOfUndo = 50
+        return manager
+    }()
+    private let scope = UISegmentedControl(items: ["Saved", "Archive"])
+    private let undoButton = UIButton(type: .system)
+    private let redoButton = UIButton(type: .system)
+
+    init(style: UITableView.Style, storage: UserDefaults = .standard) {
+        self.storage = storage
         super.init(style: style)
-        if let data = UserDefaults.standard.data(forKey: defaultsKey),
+        if let data = storage.data(forKey: defaultsKey),
            let stored = try? JSONDecoder().decode([Entry].self, from: data) { items = stored }
         else { items = Entry.examples() }
     }
-    required init?(coder: NSCoder) { fatalError("Use init(style:)") }
+    required init?(coder: NSCoder) { fatalError("Use init(style:storage:)") }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -41,65 +62,172 @@ final class LibraryController: UITableViewController {
         let refresh = UIRefreshControl()
         refresh.addTarget(self, action: #selector(refreshSavedItems), for: .valueChanged)
         refreshControl = refresh
-        updateEmptyState()
+        scope.selectedSegmentIndex = 0
+        scope.addTarget(self, action: #selector(scopeChanged), for: .valueChanged)
+        for (button, symbol, label, action) in [
+            (undoButton, "arrow.uturn.backward", "Undo", #selector(undoEdit)),
+            (redoButton, "arrow.uturn.forward", "Redo", #selector(redoEdit))
+        ] {
+            button.setImage(UIImage(systemName: symbol), for: .normal)
+            button.accessibilityLabel = label
+            button.addTarget(self, action: action, for: .touchUpInside)
+            button.widthAnchor.constraint(equalToConstant: 44).isActive = true
+        }
+        let row = UIStackView(arrangedSubviews: [scope, undoButton, redoButton])
+        row.alignment = .center
+        row.spacing = 4
+        let header = UIView(frame: CGRect(x: 0, y: 0, width: tableView.bounds.width, height: 52))
+        header.addSubview(row)
+        row.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: header.layoutMarginsGuide.leadingAnchor),
+            row.trailingAnchor.constraint(equalTo: header.layoutMarginsGuide.trailingAnchor),
+            row.centerYAnchor.constraint(equalTo: header.centerYAnchor),
+            undoButton.heightAnchor.constraint(equalToConstant: 44),
+            redoButton.heightAnchor.constraint(equalToConstant: 44),
+        ])
+        tableView.tableHeaderView = header
+        refreshUI()
     }
 
     @objc private func refreshSavedItems() {
-        if let data = UserDefaults.standard.data(forKey: defaultsKey),
-           let stored = try? JSONDecoder().decode([Entry].self, from: data) { items = stored }
-        tableView.reloadData()
-        updateEmptyState()
+        if let data = storage.data(forKey: defaultsKey),
+           let stored = try? JSONDecoder().decode([Entry].self, from: data), stored != items {
+            history.removeAllActions()
+            items = stored
+        }
+        refreshUI()
         refreshControl?.endRefreshing()
-        onChange?()
     }
 
-    private func updateEmptyState() {
-        if visible.isEmpty {
-            var state = UIContentUnavailableConfiguration.empty()
-            state.image = UIImage(systemName: favoritesOnly ? "star" : "tray")
-            state.text = favoritesOnly ? "No Favorites" : "No Items"
-            state.secondaryText = favoritesOnly ? "Turn off Favorites Only in the menu to see every item." : "Open the menu to add an item or restore the examples."
-            contentUnavailableConfiguration = state
-        } else { contentUnavailableConfiguration = nil }
+    @objc private func scopeChanged() { setArchiveScope(scope.selectedSegmentIndex == 1) }
+    func setArchiveScope(_ archived: Bool) {
+        if selecting { setSelecting(false) }
+        showingArchive = archived
+        scope.selectedSegmentIndex = archived ? 1 : 0
+        refreshUI()
     }
 
-    private func changed(reload: Bool = true) {
-        if let data = try? JSONEncoder().encode(items) { UserDefaults.standard.set(data, forKey: defaultsKey) }
+    func setSelecting(_ enabled: Bool) {
+        guard enabled != selecting else { return }
+        if enabled && isEditing { setEditing(false, animated: false) }
+        selecting = enabled
+        selectedIDs.removeAll()
+        tableView.allowsMultipleSelectionDuringEditing = enabled
+        setEditing(enabled, animated: true)
+        scope.isEnabled = !enabled
+        refreshUI(reload: false)
+        if !enabled { onSelectionChange?() }
+    }
+
+    private func refreshUI(reload: Bool = true) {
         if isViewLoaded {
-            if reload { tableView.reloadData() }
-            updateEmptyState()
+            selectedIDs.formIntersection(visible.map(\.id))
+            if reload {
+                tableView.reloadData()
+                if selecting {
+                    for (row, entry) in visible.enumerated() where selectedIDs.contains(entry.id) {
+                        tableView.selectRow(at: IndexPath(row: row, section: 0), animated: false, scrollPosition: .none)
+                    }
+                }
+            }
+            if visible.isEmpty {
+                var state = UIContentUnavailableConfiguration.empty()
+                state.image = UIImage(systemName: favoritesOnly ? "star" : (showingArchive ? "archivebox" : "tray"))
+                state.text = favoritesOnly ? "No Favorites" : (showingArchive ? "Archive is empty" : "No Items")
+                state.secondaryText = favoritesOnly ? "Turn off Favorites Only in the menu to see every item."
+                    : (showingArchive ? "Swipe left on a saved item to archive it." : "Open the menu to add an item or restore the examples.")
+                // Keep the header reachable, including Undo after deleting the last row.
+                let background = state.makeContentView()
+                background.isUserInteractionEnabled = false
+                tableView.backgroundView = background
+            } else { tableView.backgroundView = nil }
+            undoButton.isEnabled = history.canUndo && !selecting
+            redoButton.isEnabled = history.canRedo && !selecting
+            undoButton.accessibilityLabel = history.canUndo ? history.undoMenuItemTitle : "Undo"
+            redoButton.accessibilityLabel = history.canRedo ? history.redoMenuItemTitle : "Redo"
         }
         onChange?()
+        if selecting { onSelectionChange?() }
     }
 
-    func clear() { items.removeAll(); changed() }
+    // Register the inverse while UndoManager is undoing/redoing so it populates
+    // the opposite stack. A single bulk command creates one history entry.
+    private func apply(_ next: [Entry], action: String, reload: Bool = true) {
+        guard next != items else { refreshUI(reload: reload); return }
+        let previous = items
+        let group = !history.isUndoing && !history.isRedoing
+        if group { history.beginUndoGrouping() }
+        history.registerUndo(withTarget: self) { target in target.apply(previous, action: action) }
+        history.setActionName(action)
+        if group { history.endUndoGrouping() }
+        items = next
+        if let data = try? JSONEncoder().encode(items) { storage.set(data, forKey: defaultsKey) }
+        refreshUI(reload: reload)
+    }
+
+    @objc func undoEdit() {
+        guard history.canUndo, !selecting else { return }
+        history.undo()
+        refreshUI(reload: false)
+    }
+    @objc func redoEdit() {
+        guard history.canRedo, !selecting else { return }
+        history.redo()
+        refreshUI(reload: false)
+    }
+
+    func clear() { apply(items.filter { $0.isArchived != showingArchive }, action: "Delete All") }
     func addItem(named name: String) {
         favoritesOnly = false
-        items.append(Entry(name: name, symbol: "bookmark", note: "Added to your playground library."))
-        changed()
+        showingArchive = false
+        scope.selectedSegmentIndex = 0
+        apply(items + [Entry(name: name, symbol: "bookmark", note: "Added to your playground library.")], action: "Add Item")
     }
-    func sortItems() { items.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }; changed() }
-    func toggleFilter() { favoritesOnly.toggle(); changed() }
+    private func replacingScope(with entries: [Entry]) -> [Entry] {
+        var result = items
+        let positions = items.indices.filter { items[$0].isArchived == showingArchive }
+        for (index, entry) in zip(positions, entries) { result[index] = entry }
+        return result
+    }
+    func sortItems() {
+        let sorted = scopedItems.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        apply(replacingScope(with: sorted), action: "Sort Items")
+    }
+    func toggleFilter() { favoritesOnly.toggle(); refreshUI() }
     func toggleFavorite(_ id: UUID) {
         guard let i = items.firstIndex(where: { $0.id == id }) else { return }
-        items[i].favorite.toggle()
-        changed()
+        var next = items
+        next[i].favorite.toggle()
+        apply(next, action: "Change Favorite")
+    }
+    func toggleArchive(_ id: UUID) {
+        guard let i = items.firstIndex(where: { $0.id == id }) else { return }
+        var next = items
+        next[i].archived = !items[i].isArchived
+        apply(next, action: items[i].isArchived ? "Restore Item" : "Archive Item")
     }
     func restoreExamples() {
         favoritesOnly = false
-        // Only add missing samples. Keep the user's entries and favorite choices.
-        for example in Entry.examples() where !items.contains(where: { $0.name == example.name }) {
-            items.append(example)
-        }
-        changed()
+        showingArchive = false
+        scope.selectedSegmentIndex = 0
+        var next = items
+        for example in Entry.examples() where !next.contains(where: { $0.name == example.name }) { next.append(example) }
+        apply(next, action: "Restore Examples")
+    }
+    func deleteSelection() {
+        let ids = selectedIDs
+        guard !ids.isEmpty else { return }
+        setSelecting(false)
+        apply(items.filter { !ids.contains($0.id) }, action: "Delete Selection")
     }
 
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { visible.count }
     override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        visible.isEmpty ? nil : (favoritesOnly ? "Favorites" : "Saved items")
+        visible.isEmpty ? nil : (favoritesOnly ? "Favorites" : (showingArchive ? "Archived items" : "Saved items"))
     }
     override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
-        visible.isEmpty ? nil : "Edit to delete or reorder. Touch and hold an item for more actions."
+        visible.isEmpty ? nil : "Edit to delete or reorder. Select to share or delete several items."
     }
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let entry = visible[indexPath.row]
@@ -117,8 +245,18 @@ final class LibraryController: UITableViewController {
     }
 
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        if selecting {
+            selectedIDs.insert(visible[indexPath.row].id)
+            onSelectionChange?()
+            return
+        }
         tableView.deselectRow(at: indexPath, animated: true)
         openItem?(visible[indexPath.row].id)
+    }
+    override func tableView(_ tableView: UITableView, didDeselectRowAt indexPath: IndexPath) {
+        guard selecting else { return }
+        selectedIDs.remove(visible[indexPath.row].id)
+        onSelectionChange?()
     }
     override func tableView(_ tableView: UITableView, canEditRowAt indexPath: IndexPath) -> Bool { true }
     override func tableView(_ tableView: UITableView, commit editingStyle: UITableViewCell.EditingStyle,
@@ -128,18 +266,50 @@ final class LibraryController: UITableViewController {
     }
     private func remove(_ id: UUID) {
         guard let row = visible.firstIndex(where: { $0.id == id }) else { return }
-        items.removeAll { $0.id == id }
+        apply(items.filter { $0.id != id }, action: "Delete Item", reload: false)
         tableView.deleteRows(at: [IndexPath(row: row, section: 0)], with: .automatic)
-        changed(reload: false)
     }
-    override func tableView(_ tableView: UITableView, canMoveRowAt indexPath: IndexPath) -> Bool { !favoritesOnly }
+    override func tableView(_ tableView: UITableView, canMoveRowAt indexPath: IndexPath) -> Bool { !favoritesOnly && !selecting }
     override func tableView(_ tableView: UITableView, moveRowAt source: IndexPath, to destination: IndexPath) {
-        let moved = items.remove(at: source.row)
-        items.insert(moved, at: destination.row)
-        changed(reload: false)
+        var ordered = scopedItems
+        let moved = ordered.remove(at: source.row)
+        ordered.insert(moved, at: destination.row)
+        apply(replacingScope(with: ordered), action: "Reorder", reload: false)
+    }
+    override func tableView(_ tableView: UITableView, leadingSwipeActionsConfigurationForRowAt path: IndexPath) -> UISwipeActionsConfiguration? {
+        guard !selecting else { return nil }
+        let entry = visible[path.row]
+        let action = UIContextualAction(style: .normal, title: entry.favorite ? "Unfavorite" : "Favorite") { [weak self] _, _, done in
+            self?.toggleFavorite(entry.id)
+            done(true)
+        }
+        action.image = UIImage(systemName: entry.favorite ? "star.slash" : "star")
+        action.backgroundColor = .systemOrange
+        let config = UISwipeActionsConfiguration(actions: [action])
+        config.performsFirstActionWithFullSwipe = true
+        return config
+    }
+    override func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt path: IndexPath) -> UISwipeActionsConfiguration? {
+        guard !selecting else { return nil }
+        let entry = visible[path.row]
+        let archive = UIContextualAction(style: .normal, title: entry.isArchived ? "Restore" : "Archive") { [weak self] _, _, done in
+            self?.toggleArchive(entry.id)
+            done(true)
+        }
+        archive.image = UIImage(systemName: entry.isArchived ? "tray.and.arrow.up" : "archivebox")
+        archive.backgroundColor = .systemIndigo
+        let delete = UIContextualAction(style: .destructive, title: "Delete") { [weak self] _, _, done in
+            self?.remove(entry.id)
+            done(true)
+        }
+        delete.image = UIImage(systemName: "trash")
+        let config = UISwipeActionsConfiguration(actions: isEditing ? [delete] : [archive, delete])
+        config.performsFirstActionWithFullSwipe = !isEditing
+        return config
     }
     override func tableView(_ tableView: UITableView, contextMenuConfigurationForRowAt path: IndexPath,
                             point: CGPoint) -> UIContextMenuConfiguration? {
+        guard !selecting else { return nil }
         let entry = visible[path.row]
         return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
             let star = UIAction(title: entry.favorite ? "Remove Favorite" : "Favorite",
