@@ -71,7 +71,7 @@ final class PlaygroundTabs: UIViewController, UITabBarDelegate {
             default: page = UIHostingController(rootView: CatalogPage(demo: demo))
             }
             page.title = demo.title
-            decorate(page)
+            decorate(page, largeTitle: demo == .scrollBar)
             navigationController?.pushViewController(page, animated: true)
         }
         bridge.setMethodCallHandler { [weak self] call, reply in
@@ -159,8 +159,8 @@ final class PlaygroundTabs: UIViewController, UITabBarDelegate {
         return item
     }
 
-    private func decorate(_ page: UIViewController) {
-        page.navigationItem.largeTitleDisplayMode = .never
+    private func decorate(_ page: UIViewController, largeTitle: Bool = false) {
+        page.navigationItem.largeTitleDisplayMode = largeTitle ? .always : .never
         let item = barItem("More", "ellipsis", "library.menu")
         item.menu = makeMenu(anchor: item)
         page.navigationItem.rightBarButtonItem = item

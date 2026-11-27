@@ -18,7 +18,7 @@ Flutter project με τέσσερα tabs. Το Controls τρέχει σε Flutte
 2. **Library → …** Το menu έχει New Item, Sort by Name, Favorites Only, Restore Examples, Share List και ξεχωριστή destructive ενέργεια Delete All Items με επιβεβαίωση. Το Restore Examples συμπληρώνει όσα παραδείγματα λείπουν.
 3. **Library → Controls.** Παρακολούθησε το ίδιο … καθώς προστίθεται το Share στα αριστερά του. Πάτησε Share για το activity sheet. Κλείσε το Group toolbar actions για να μετακινηθεί το Share στο αριστερό άκρο της οθόνης. Το ίδιο menu παραμένει στα δεξιά.
 4. **Controls → Text & Values.** Δοκίμασε push και swipe-back με το ίδιο menu στη navigation bar. Στο Library, άνοιξε μια γραμμή για να δεις τη μετάβαση στο detail με το Favorite. Τα bar items έχουν σταθερά identifiers για το matching του UIKit. Το λειτουργικό επιλέγει την ακριβή κίνηση για κάθε διάταξη και ρύθμιση προσβασιμότητας.
-5. **Catalog → Scrolling Toolbar.** Επίλεξε Down, Up ή Never και κύλησε τη λίστα. Το demo αλλάζει το πραγματικό navigationBarMinimization του iOS 27.
+5. **Catalog → Scrolling Toolbar.** Σύρε τη λίστα προς τα πάνω για να μικρύνει ο μεγάλος τίτλος και γύρισε στην κορυφή για να μεγαλώσει ξανά. Η αρχική επιλογή Never κρατά ορατή την μπάρα. Δοκίμασε Down ή Up για την ελαχιστοποίηση ολόκληρης της μπάρας. Το demo αλλάζει το πραγματικό navigationBarMinimization του iOS 27.
 6. **Catalog → Dialogs & Sheets.** Άνοιξε το Rename, το Document actions, το resizable sheet και το popover. Στο sheet σύρε τη λαβή ανάμεσα στα δύο ύψη ή κλείσε το με swipe.
 7. **Motion → Glass morph.** Άνοιξε και κλείσε την ομάδα εργαλείων. Στη συνέχεια δοκίμασε αλλαγή συμβόλου, τα τρία springs και το zoom σε πλήρη οθόνη.
 

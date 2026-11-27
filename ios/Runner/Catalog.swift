@@ -378,11 +378,15 @@ final class ScrollingBarController: UITableViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        behavior.selectedSegmentIndex = 0
+        behavior.selectedSegmentIndex = 2
         behavior.accessibilityLabel = "Minimize when scrolling"
         behavior.addTarget(self, action: #selector(configureBar), for: .valueChanged)
         configureBar()
     }
+    override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
+        section == 0 ? "Scroll to collapse the title. Return to the top to expand it." : nil
+    }
+
     @objc private func configureBar() {
         var policy = UIBarMinimization()
         let choices: [UIBarMinimizationBehavior] = [.onScrollDown, .onScrollUp, .never]

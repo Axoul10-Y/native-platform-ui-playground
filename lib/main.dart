@@ -1,4 +1,3 @@
-
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart' show Theme, ThemeData;
 import 'package:flutter/services.dart';
@@ -12,31 +11,29 @@ class PlaygroundApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => CupertinoApp(
-        debugShowCheckedModeBanner: false,
-        title: 'Playground',
-        home: Builder(
-          builder: (context) {
-            final dark =
-                MediaQuery.platformBrightnessOf(context) == Brightness.dark;
-            return Theme(
-              data: dark ? ThemeData.dark() : ThemeData.light(),
-              child: const ControlsPage(),
-            );
-          },
-        ),
-      );
+    debugShowCheckedModeBanner: false,
+    title: 'Playground',
+    home: Builder(
+      builder: (context) {
+        final dark =
+            MediaQuery.platformBrightnessOf(context) == Brightness.dark;
+        return Theme(
+          data: dark ? ThemeData.dark() : ThemeData.light(),
+          child: const ControlsPage(),
+        );
+      },
+    ),
+  );
 }
 
 class ControlsPage extends StatefulWidget {
   const ControlsPage({super.key});
-
   @override
   State<ControlsPage> createState() => _ControlsPageState();
 }
 
 class _ControlsPageState extends State<ControlsPage> {
   static const channel = MethodChannel('dev.componentstudio/playground');
-
   static const effects = <SfSymbolEffect, (String, String)>{
     SfSymbolEffect.bounce: ('Bounce', 'bell.fill'),
     SfSymbolEffect.pulse: ('Pulse', 'heart.fill'),
@@ -56,68 +53,61 @@ class _ControlsPageState extends State<ControlsPage> {
   bool playing = false;
 
   void reset() => setState(() {
-        value = 0;
-        effect = SfSymbolEffect.bounce;
-        playing = false;
-        vertical = false;
-      });
+    value = 0;
+    effect = SfSymbolEffect.bounce;
+    playing = false;
+    vertical = false;
+  });
 
   Future<void> confirmReset() => showIosAlert(
-        context: context,
-        title: 'Reset preview?',
-        message: 'Restore the counter, button layout and symbol effect.',
-        barrierDismissible: false,
-        cancelButton: const IosAlertButton(
-          text: 'Cancel',
-          style: IosAlertButtonStyle.cancel,
-        ),
-        primaryButton: IosAlertButton(
-          text: 'Reset',
-          style: IosAlertButtonStyle.destructive,
-          onTap: reset,
-        ),
-      );
+    context: context,
+    title: 'Reset preview?',
+    message: 'Restore the counter, button layout and symbol effect.',
+    barrierDismissible: false,
+    cancelButton: const IosAlertButton(
+      text: 'Cancel',
+      style: IosAlertButtonStyle.cancel,
+    ),
+    primaryButton: IosAlertButton(
+      text: 'Reset',
+      style: IosAlertButtonStyle.destructive,
+      onTap: reset,
+    ),
+  );
 
-  Widget section(
-    BuildContext context,
-    String title,
-    List<Widget> rows,
-  ) =>
+  Widget section(BuildContext context, String title, List<Widget> rows) =>
       CupertinoListSection.insetGrouped(
         header: Text(title),
-        backgroundColor:
-            CupertinoColors.systemGroupedBackground.resolveFrom(context),
+        backgroundColor: CupertinoColors.systemGroupedBackground.resolveFrom(
+          context,
+        ),
         children: rows,
       );
 
-  Widget toggle({
-    required bool value,
-    required ValueChanged<bool> onChanged,
-  }) =>
+  Widget toggle({required bool value, required ValueChanged<bool> onChanged}) =>
       isNativeUiSupported
-          ? NativeUi.switchWidget(value: value, onChanged: onChanged)
-          : CupertinoSwitch(value: value, onChanged: onChanged);
+      ? NativeUi.switchWidget(value: value, onChanged: onChanged)
+      : CupertinoSwitch(value: value, onChanged: onChanged);
 
   Widget nativeButton(
     String title,
     VoidCallback action, {
     double width = 108,
-  }) =>
-      NativeUi.button(
-        title: title,
-        onPressed: action,
-        options: IosButtonOptions(width: width, height: 44),
-      );
+  }) => NativeUi.button(
+    title: title,
+    onPressed: action,
+    options: IosButtonOptions(width: width, height: 44),
+  );
 
   @override
   Widget build(BuildContext context) {
     final blue = CupertinoColors.activeBlue.resolveFrom(context);
     final reduced = MediaQuery.disableAnimationsOf(context);
     final descriptor = effects[effect]!;
-
     return CupertinoPageScaffold(
-      backgroundColor:
-          CupertinoColors.systemGroupedBackground.resolveFrom(context),
+      backgroundColor: CupertinoColors.systemGroupedBackground.resolveFrom(
+        context,
+      ),
       child: SafeArea(
         child: ListView(
           padding: const EdgeInsets.only(top: 4, bottom: 24),
@@ -125,10 +115,7 @@ class _ControlsPageState extends State<ControlsPage> {
             section(context, 'Linked buttons', [
               CupertinoListTile(
                 title: const Text('Counter'),
-                additionalInfo: Text(
-                  '$value',
-                  semanticsLabel: 'Count $value',
-                ),
+                additionalInfo: Text('$value', semanticsLabel: 'Count $value'),
               ),
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 14),
@@ -239,9 +226,7 @@ class _ControlsPageState extends State<ControlsPage> {
             section(context, 'Tab bar preview', [
               CupertinoListTile(
                 title: const Text('Selected tab'),
-                additionalInfo: Text(
-                  ['Map', 'Saved', 'Recent'][previewTab],
-                ),
+                additionalInfo: Text(['Map', 'Saved', 'Recent'][previewTab]),
               ),
               NativeUi.bottomNavigationBar(
                 items: const [
@@ -255,10 +240,7 @@ class _ControlsPageState extends State<ControlsPage> {
             ]),
             section(context, 'More controls', [
               CupertinoListTile(
-                leading: NativeUi.sfSymbol(
-                  SfSymbols.pencil,
-                  color: blue,
-                ),
+                leading: NativeUi.sfSymbol(SfSymbols.pencil, color: blue),
                 title: const Text('Text & Values'),
                 trailing: const CupertinoListTileChevron(),
                 onTap: () => channel.invokeMethod<void>('openInputs'),
