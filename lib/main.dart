@@ -11,7 +11,7 @@ class PlaygroundApp extends StatefulWidget {
 }
 
 class _PlaygroundAppState extends State<PlaygroundApp> {
-  bool _dark = false;
+  bool _dark = false; //false
 
   @override
   Widget build(BuildContext context) {
