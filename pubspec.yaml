@@ -1,20 +1,15 @@
-name: native_platform_ui_playground
-description: Interactive Flutter playground for native_platform_ui iOS components.
-publish_to: "none"
+name: native_playground
+description: An interactive Flutter and UIKit component catalog for iOS 27.
+publish_to: none
 version: 1.0.0+1
-
 environment:
-  sdk: ">=3.3.0 <4.0.0"
-
+  sdk: '>=3.12.2 <4.0.0'
 dependencies:
   flutter:
     sdk: flutter
-  native_platform_ui: ^0.0.6
-
+  native_platform_ui: 0.0.6
+  sf_symbols: 0.6.1
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^4.0.0
-
-flutter:
-  uses-material-design: true
+  flutter_lints: ^6.0.0
