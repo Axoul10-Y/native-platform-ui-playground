@@ -261,7 +261,7 @@ final class PlaygroundTabs: UIViewController, UITabBarDelegate {
         let count = library.selectedIDs.count
         guard count > 0 else { return }
         let title = count == 1 ? "Delete selected item?" : "Delete \(count) selected items?"
-        let alert = UIAlertController(title: title, message: "You can undo this in the Library.", preferredStyle: .alert)
+        let alert = UIAlertController(title: title, message: nil, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         alert.addAction(UIAlertAction(title: "Delete", style: .destructive) { [weak self] _ in self?.library.deleteSelection() })
         presenter.present(alert, animated: true)

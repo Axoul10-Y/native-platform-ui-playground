@@ -36,15 +36,7 @@ final class LibraryController: UITableViewController {
     var onSelectionChange: (() -> Void)?
     var openItem: ((UUID) -> Void)?
 
-    let history: UndoManager = {
-        let manager = UndoManager()
-        manager.groupsByEvent = false
-        manager.levelsOfUndo = 50
-        return manager
-    }()
     private let scope = UISegmentedControl(items: ["Saved", "Archive"])
-    private let undoButton = UIButton(type: .system)
-    private let redoButton = UIButton(type: .system)
 
     init(style: UITableView.Style, storage: UserDefaults = .standard) {
         self.storage = storage
@@ -64,27 +56,13 @@ final class LibraryController: UITableViewController {
         refreshControl = refresh
         scope.selectedSegmentIndex = 0
         scope.addTarget(self, action: #selector(scopeChanged), for: .valueChanged)
-        for (button, symbol, label, action) in [
-            (undoButton, "arrow.uturn.backward", "Undo", #selector(undoEdit)),
-            (redoButton, "arrow.uturn.forward", "Redo", #selector(redoEdit))
-        ] {
-            button.setImage(UIImage(systemName: symbol), for: .normal)
-            button.accessibilityLabel = label
-            button.addTarget(self, action: action, for: .touchUpInside)
-            button.widthAnchor.constraint(equalToConstant: 44).isActive = true
-        }
-        let row = UIStackView(arrangedSubviews: [scope, undoButton, redoButton])
-        row.alignment = .center
-        row.spacing = 4
         let header = UIView(frame: CGRect(x: 0, y: 0, width: tableView.bounds.width, height: 52))
-        header.addSubview(row)
-        row.translatesAutoresizingMaskIntoConstraints = false
+        header.addSubview(scope)
+        scope.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            row.leadingAnchor.constraint(equalTo: header.layoutMarginsGuide.leadingAnchor),
-            row.trailingAnchor.constraint(equalTo: header.layoutMarginsGuide.trailingAnchor),
-            row.centerYAnchor.constraint(equalTo: header.centerYAnchor),
-            undoButton.heightAnchor.constraint(equalToConstant: 44),
-            redoButton.heightAnchor.constraint(equalToConstant: 44),
+            scope.leadingAnchor.constraint(equalTo: header.layoutMarginsGuide.leadingAnchor),
+            scope.trailingAnchor.constraint(equalTo: header.layoutMarginsGuide.trailingAnchor),
+            scope.centerYAnchor.constraint(equalTo: header.centerYAnchor),
         ])
         tableView.tableHeaderView = header
         refreshUI()
@@ -93,7 +71,6 @@ final class LibraryController: UITableViewController {
     @objc private func refreshSavedItems() {
         if let data = storage.data(forKey: defaultsKey),
            let stored = try? JSONDecoder().decode([Entry].self, from: data), stored != items {
-            history.removeAllActions()
             items = stored
         }
         refreshUI()
@@ -137,52 +114,28 @@ final class LibraryController: UITableViewController {
                 state.text = favoritesOnly ? "No Favorites" : (showingArchive ? "Archive is empty" : "No Items")
                 state.secondaryText = favoritesOnly ? "Turn off Favorites Only in the menu to see every item."
                     : (showingArchive ? "Swipe left on a saved item to archive it." : "Open the menu to add an item or restore the examples.")
-                // Keep the header reachable, including Undo after deleting the last row.
                 let background = state.makeContentView()
                 background.isUserInteractionEnabled = false
                 tableView.backgroundView = background
             } else { tableView.backgroundView = nil }
-            undoButton.isEnabled = history.canUndo && !selecting
-            redoButton.isEnabled = history.canRedo && !selecting
-            undoButton.accessibilityLabel = history.canUndo ? history.undoMenuItemTitle : "Undo"
-            redoButton.accessibilityLabel = history.canRedo ? history.redoMenuItemTitle : "Redo"
         }
         onChange?()
         if selecting { onSelectionChange?() }
     }
 
-    // Register the inverse while UndoManager is undoing/redoing so it populates
-    // the opposite stack. A single bulk command creates one history entry.
-    private func apply(_ next: [Entry], action: String, reload: Bool = true) {
+    private func apply(_ next: [Entry], reload: Bool = true) {
         guard next != items else { refreshUI(reload: reload); return }
-        let previous = items
-        let group = !history.isUndoing && !history.isRedoing
-        if group { history.beginUndoGrouping() }
-        history.registerUndo(withTarget: self) { target in target.apply(previous, action: action) }
-        history.setActionName(action)
-        if group { history.endUndoGrouping() }
         items = next
         if let data = try? JSONEncoder().encode(items) { storage.set(data, forKey: defaultsKey) }
         refreshUI(reload: reload)
     }
 
-    @objc func undoEdit() {
-        guard history.canUndo, !selecting else { return }
-        history.undo()
-        refreshUI(reload: false)
-    }
-    @objc func redoEdit() {
-        guard history.canRedo, !selecting else { return }
-        history.redo()
-        refreshUI(reload: false)
-    }
-
-    func clear() { apply(items.filter { $0.isArchived != showingArchive }, action: "Delete All") }
+    func clear() { apply(items.filter { $0.isArchived != showingArchive }) }
     func addItem(named name: String) {
         favoritesOnly = false
         showingArchive = false
         scope.selectedSegmentIndex = 0
-        apply(items + [Entry(name: name, symbol: "bookmark", note: "Added to your playground library.")], action: "Add Item")
+        apply(items + [Entry(name: name, symbol: "bookmark", note: "Added to your playground library.")])
     }
     private func replacingScope(with entries: [Entry]) -> [Entry] {
         var result = items
@@ -192,20 +145,20 @@ final class LibraryController: UITableViewController {
     }
     func sortItems() {
         let sorted = scopedItems.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-        apply(replacingScope(with: sorted), action: "Sort Items")
+        apply(replacingScope(with: sorted))
     }
     func toggleFilter() { favoritesOnly.toggle(); refreshUI() }
     func toggleFavorite(_ id: UUID) {
         guard let i = items.firstIndex(where: { $0.id == id }) else { return }
         var next = items
         next[i].favorite.toggle()
-        apply(next, action: "Change Favorite")
+        apply(next)
     }
     func toggleArchive(_ id: UUID) {
         guard let i = items.firstIndex(where: { $0.id == id }) else { return }
         var next = items
         next[i].archived = !items[i].isArchived
-        apply(next, action: items[i].isArchived ? "Restore Item" : "Archive Item")
+        apply(next)
     }
     func restoreExamples() {
         favoritesOnly = false
@@ -213,13 +166,13 @@ final class LibraryController: UITableViewController {
         scope.selectedSegmentIndex = 0
         var next = items
         for example in Entry.examples() where !next.contains(where: { $0.name == example.name }) { next.append(example) }
-        apply(next, action: "Restore Examples")
+        apply(next)
     }
     func deleteSelection() {
         let ids = selectedIDs
         guard !ids.isEmpty else { return }
         setSelecting(false)
-        apply(items.filter { !ids.contains($0.id) }, action: "Delete Selection")
+        apply(items.filter { !ids.contains($0.id) })
     }
 
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { visible.count }
@@ -266,7 +219,7 @@ final class LibraryController: UITableViewController {
     }
     private func remove(_ id: UUID) {
         guard let row = visible.firstIndex(where: { $0.id == id }) else { return }
-        apply(items.filter { $0.id != id }, action: "Delete Item", reload: false)
+        apply(items.filter { $0.id != id }, reload: false)
         tableView.deleteRows(at: [IndexPath(row: row, section: 0)], with: .automatic)
     }
     override func tableView(_ tableView: UITableView, canMoveRowAt indexPath: IndexPath) -> Bool { !favoritesOnly && !selecting }
@@ -274,7 +227,7 @@ final class LibraryController: UITableViewController {
         var ordered = scopedItems
         let moved = ordered.remove(at: source.row)
         ordered.insert(moved, at: destination.row)
-        apply(replacingScope(with: ordered), action: "Reorder", reload: false)
+        apply(replacingScope(with: ordered), reload: false)
     }
     override func tableView(_ tableView: UITableView, leadingSwipeActionsConfigurationForRowAt path: IndexPath) -> UISwipeActionsConfiguration? {
         guard !selecting else { return nil }

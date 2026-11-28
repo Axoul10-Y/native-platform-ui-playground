@@ -14,7 +14,7 @@ final class RunnerTests: XCTestCase {
         XCTAssertFalse(list.tableView.isEditing)
     }
 
-    @MainActor func testFilteredSelectionDeletesAndUndoesAsOneCommand() throws {
+    @MainActor func testFilteredSelectionDeletesOnlySelectedItemsAndPersists() throws {
         let suite = "playground.tests.\(UUID())"
         let storage = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { storage.removePersistentDomain(forName: suite) }
@@ -34,16 +34,11 @@ final class RunnerTests: XCTestCase {
         XCTAssertEqual(list.items, original.filter { !$0.favorite })
         XCTAssertFalse(list.tableView.allowsMultipleSelectionDuringEditing)
         XCTAssertFalse(list.isEditing)
-        list.undoEdit()
-        XCTAssertEqual(list.items, original)
-        XCTAssertFalse(list.history.canUndo)
-        list.redoEdit()
-        XCTAssertEqual(list.items, original.filter { !$0.favorite })
         let reopened = LibraryController(style: .insetGrouped, storage: storage)
         XCTAssertEqual(reopened.items, list.items)
     }
 
-    @MainActor func testSwipeArchiveRestoreOrderAndRedoInvalidation() throws {
+    @MainActor func testSwipeArchiveAndRestorePreserveOrder() throws {
         let suite = "playground.tests.\(UUID())"
         let storage = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { storage.removePersistentDomain(forName: suite) }
@@ -64,13 +59,8 @@ final class RunnerTests: XCTestCase {
         XCTAssertEqual(restore.title, "Restore")
         restore.handler(restore, list.view) { XCTAssertTrue($0) }
         XCTAssertTrue(list.scopedItems.isEmpty)
-        list.undoEdit()
-        XCTAssertEqual(list.scopedItems.map(\.id), [starting[1].id])
-        list.undoEdit()
-        XCTAssertEqual(list.items, starting)
-        XCTAssertTrue(list.history.canRedo)
-        list.toggleFavorite(starting[0].id)
-        XCTAssertFalse(list.history.canRedo)
+        list.setArchiveScope(false)
+        XCTAssertEqual(list.scopedItems.map(\.id), starting.map(\.id))
     }
 
     @MainActor func testLegacyEntryLoadsAndCancelSelectionKeepsLibrary() throws {
@@ -88,6 +78,5 @@ final class RunnerTests: XCTestCase {
         list.setSelecting(false)
         XCTAssertTrue(list.selectedIDs.isEmpty)
         XCTAssertEqual(list.scopedItems.map(\.id), [id])
-        XCTAssertFalse(list.history.canUndo)
     }
 }
